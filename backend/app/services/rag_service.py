@@ -40,7 +40,8 @@ class RAGService:
         try:
             # 1. Setup Embeddings
             if use_gemini:
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=self.google_key)
+                # Use text-embedding-004 for better stability and quality
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
             
@@ -99,11 +100,18 @@ class RAGService:
                 detected_language="en"
             )
 
+        if not self.retriever:
+            return ChatResponse(
+                response="⚠️ **System is warming up!** The Knowledge Base is currently being initialized. Please wait 10 seconds and try again.",
+                sources=[],
+                detected_language="en"
+            )
+
         try:
             # 1. Retrieval
             docs = self.retriever.invoke(query)
             context_text = "\n\n".join([d.page_content for d in docs])
-            sources = list(set([d.metadata.get("source", "Unknown Doc") for d in docs]))
+            sources = list(set([str(d.metadata.get("source", "Unknown Doc")) for d in docs]))
             
             # 2. Prompt Engineering (Friendly & Smart)
             template = """
@@ -164,16 +172,26 @@ class RAGService:
 
         except Exception as e:
             print(f"RAG Error: {e}")
-            error_msg = str(e)
-            if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+            error_msg = str(e).lower()
+            
+            # Catch Resource Exhausted / Quota Errors specifically
+            if any(x in error_msg for x in ["429", "quota", "limit", "exhausted", "resource_exhausted"]):
                  return ChatResponse(
-                    response="⚠️ **High Traffic Alert:** The AI is currently overloaded with requests (Free Tier Limit). Please wait 1 minute and try again.",
+                    response="⚠️ **Gemini Free Tier Limit:** The AI is receiving too many requests. Please wait about 30-60 seconds and try again. 🎓",
                     sources=[],
                     detected_language="en"
                 )
             
+            # Catch Context Window / Token Errors
+            if "context_length" in error_msg or "tokens" in error_msg:
+                return ChatResponse(
+                    response="⚠️ **Message too long:** Please try asking a shorter or more specific question.",
+                    sources=[],
+                    detected_language="en"
+                )
+
             return ChatResponse(
-                response="I encountered an internal error while processing your request.",
+                response="I encountered an internal error while processing your request. Please try again in secondary.",
                 sources=[],
                 detected_language="en"
             )
