@@ -62,15 +62,9 @@ class IngestionService:
         splits = text_splitter.split_documents(documents)
         
         try:
-            embeddings = None
             if use_gemini:
-                try:
-                    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
-                    # Test
-                    embeddings.embed_query("test")
-                except Exception:
-                    print("WARNING: Ingestion falling back to HuggingFace embeddings.")
-                    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                print("DEBUG: Using models/text-embedding-004")
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
                 
