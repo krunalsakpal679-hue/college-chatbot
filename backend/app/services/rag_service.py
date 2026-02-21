@@ -1,14 +1,6 @@
 from app.schemas.chat import ChatRequest, ChatResponse
 import os
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_chroma import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from tenacity import retry,  stop_after_attempt, wait_exponential, retry_if_exception_type
-import google.api_core.exceptions
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.core.config import settings
 
 class RAGService:
@@ -20,6 +12,11 @@ class RAGService:
         self.vector_store = None
         self.retriever = None
         self.llm = None
+        
+        # References for lazy-loaded classes
+        self.ChatPromptTemplate = None
+        self.StrOutputParser = None
+        self.google_exceptions = None
         
     def initialize(self):
         """Public wrapper for async-safe initialization."""
@@ -40,6 +37,21 @@ class RAGService:
             return
 
         try:
+            print("INFO: Loading heavy AI heart in background...")
+            from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+            from langchain_core.prompts import ChatPromptTemplate
+            from langchain_core.output_parsers import StrOutputParser
+            from langchain_chroma import Chroma
+            from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+            from langchain_community.document_loaders import TextLoader
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+            import google.api_core.exceptions
+            
+            # Store references for later use
+            self.ChatPromptTemplate = ChatPromptTemplate
+            self.StrOutputParser = StrOutputParser
+            self.google_exceptions = google.api_core.exceptions
+
             # 1. Setup Embeddings
             if use_gemini:
                 print("DEBUG: Using models/text-embedding-004")
@@ -138,12 +150,12 @@ class RAGService:
             {question}
             """
             
-            prompt = ChatPromptTemplate.from_template(template)
-            chain = prompt | self.llm | StrOutputParser()
+            prompt = self.ChatPromptTemplate.from_template(template)
+            chain = prompt | self.llm | self.StrOutputParser()
             
             # 3. Generation with Retry Logic
             @retry(
-                retry=retry_if_exception_type(google.api_core.exceptions.ResourceExhausted),
+                retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
                 wait=wait_exponential(multiplier=1, min=2, max=10),
                 stop=stop_after_attempt(3)
             )
@@ -152,12 +164,15 @@ class RAGService:
 
             try:
                 response_text = await generate_with_retry()
-            except google.api_core.exceptions.ResourceExhausted:
-                return ChatResponse(
-                    response="⚠️ **High Traffic Alert:** The AI brain is currently overloaded. Please wait 30 seconds and try again.",
-                    sources=[],
-                    detected_language="en"
-                )
+            except Exception as e:
+                # Catch Resource Exhausted specifically if possible
+                if self.google_exceptions and isinstance(e, self.google_exceptions.ResourceExhausted):
+                    return ChatResponse(
+                        response="⚠️ **High Traffic Alert:** The AI brain is currently overloaded. Please wait 30 seconds and try again.",
+                        sources=[],
+                        detected_language="en"
+                    )
+                raise e # Re-raise for general error handler
             
             # 4. Language Detection (Heuristic)
             detected_lang = "en"

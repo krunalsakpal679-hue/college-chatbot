@@ -1,31 +1,32 @@
 import os
 from typing import List
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from app.core.config import settings
 
 class IngestionService:
     def __init__(self):
         self.data_dir = "data"
         self.db_dir = settings.CHROMA_DB_DIR
-        self.api_key = settings.OPENAI_API_KEY
+        self.openai_key = settings.OPENAI_API_KEY
+        self.google_key = settings.GOOGLE_API_KEY
         
     def ingest_documents(self):
         """
         Scans data directory for supported files, processes them, and updates the Vector DB.
         """
-        self.openai_key = settings.OPENAI_API_KEY
-        self.google_key = settings.GOOGLE_API_KEY
-        
         use_gemini = False
-        if (not self.openai_key or "placeholder" in self.openai_key) and (self.google_key and "placeholder" not in self.google_key):
+        if (not self.google_key or "placeholder" in self.google_key) and (self.openai_key and "placeholder" not in self.openai_key):
+             use_gemini = False
+        elif self.google_key and "placeholder" not in self.google_key:
             use_gemini = True
         elif not (self.openai_key and "placeholder" not in self.openai_key):
              return {"status": "error", "message": "No valid API Key (OpenAI or Google) found."}
+
+        # Lazy load heavy dependencies
+        from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+        from langchain_chroma import Chroma
+        from langchain_openai import OpenAIEmbeddings
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
         # 1. Load Documents
         documents = []
