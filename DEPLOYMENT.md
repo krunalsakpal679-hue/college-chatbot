@@ -1,40 +1,47 @@
 # 🚀 KPGU Chatbot Deployment Guide
 
-To make your chatbot work on mobile and the public internet, you need to host both the **Brain (Backend)** and the **Face (Frontend)** online.
+Follow these steps to put your chatbot online for everyone to use.
 
-## Part 1: Deploy Backend (The Brain) to Render
+## Part 1: Deploy Backend to Render
 
-1.  **Sign Up**: Go to [render.com](https://render.com) and sign up with GitHub.
-2.  **New Web Service**:
-    *   Click **New +** -> **Web Service**.
-    *   Select "Build and deploy from a Git repository".
-    *   Connect your GitHub repo: `krunalsakpal679-hue/college-chatbot`.
-3.  **Configure**:
-    *   **Name**: `kpgu-backend`
-    *   **Root Directory**: `backend` (Important!)
+1.  **Preparation**: Make sure you have pushed the latest code (including the `runtime.txt` and `backend/data/` folder) to your GitHub.
+2.  **Create Web Service**:
+    *   Go to [Render.com](https://render.com) -> **New +** -> **Web Service**.
+    *   Connect your repository: `krunalsakpal679-hue/college-chatbot`.
+3.  **Configure Settings**:
+    *   **Name**: `kpgu-chatbot-backend`
+    *   **Root Directory**: `backend` (⚠️ **CRITICAL: Do not forget this!**)
     *   **Runtime**: `Python 3`
     *   **Build Command**: `pip install -r requirements.txt`
     *   **Start Command**: `uvicorn main:app --host 0.0.0.0 --port 10000`
-    *   **Environment Variables** (Add these):
-        *   `GOOGLE_API_KEY`: (Paste your Gemini Key here)
-        *   `SECRET_KEY`: `any-random-string-here`
-        *   `PYTHON_VERSION`: `3.11.0` (Optional, good for stability)
-4.  **Deploy**: Click "Create Web Service".
-5.  **Copy URL**: Once live, copy the URL (e.g., `https://kpgu-backend.onrender.com`).
+4.  **Add Environment Variables**:
+    *   Click **Advanced** -> **Add Environment Variable**:
+        *   `GOOGLE_API_KEY`: (Your Gemini Key)
+        *   `SECRET_KEY`: (Any random text like `kpgu-secret-123`)
+        *   `PYTHON_VERSION`: `3.11.9`
+5.  **🚀 The Most Important Step**:
+    *   If you already tried to deploy and it failed, click the **Manual Deploy** button on your dashboard and select **"Clear Build Cache & Deploy"**. 
+    *   This ensures the server downloads my new fixes (like the `SECRET_KEY` fix).
 
----
+## Part 2: Deploy Frontend to Vercel
 
-## Part 2: Connect Frontend (The Face) on Vercel
+1.  **Preparation**: Push your latest code to GitHub.
+2.  **Create Project**:
+    *   Go to [Vercel.com](https://vercel.com) and click **"Add New"** -> **"Project"**.
+    *   Import your repository: `krunalsakpal679-hue/college-chatbot`.
+3.  **Configure Project Settings**:
+    *   **Framework Preset**: `Vite`.
+    *   **Root Directory**: `frontend` (⚠️ **CRITICAL: Set this to `frontend`!**)
+    *   **Build Command**: `npm run build`
+    *   **Output Directory**: `dist`
+4.  **Add Environment Variables**:
+    *   Go to **Settings** -> **Environment Variables**.
+    *   Add:
+        *   **Key**: `VITE_API_URL`
+        *   **Value**: `https://your-backend-name.onrender.com/api/v1/chat`
+        *   *(Make sure to replace with your ACTUAL Render URL and keep the `/api/v1/chat` at the end!)*
+5.  **Deploy**:
+    *   Go to the **Deployments** tab.
+    *   Click **"Redeploy"** on the latest item to make sure the new environment variable is used.
 
-1.  **Go to Vercel Dashboard**: Open your existing project.
-2.  **Settings** -> **Environment Variables**.
-3.  **Add New Variable**:
-    *   **Key**: `VITE_API_URL`
-    *   **Value**: `https://<YOUR-RENDER-URL>.onrender.com/api/v1/chat`
-    *   *(Make sure to add `/api/v1/chat` at the end!)*
-4.  **Redeploy**:
-    *   Go to **Deployments** tab.
-    *   Click the **3 dots** on the latest deployment -> **Redeploy**.
-
-## ✅ Done!
-Now checking your Vercel app on mobile should work perfectly because it talks to the online Render backend instead of your laptop.
+✅ **Success!** Your KPGU Chatbot is now fully live. The Vercel frontend will talk to the Render backend, providing accurate college information from your database.
