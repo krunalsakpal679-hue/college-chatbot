@@ -40,8 +40,8 @@ class RAGService:
         try:
             # 1. Setup Embeddings
             if use_gemini:
-                # Use text-embedding-004 for better stability and quality
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
+                # Use models/embedding-001 for maximum compatibility with free tier
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=self.google_key)
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
             
