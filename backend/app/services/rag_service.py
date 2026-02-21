@@ -12,6 +12,7 @@ class RAGService:
         self.vector_store = None
         self.retriever = None
         self.llm = None
+        self.fallback_chunks = []
         
         # References for lazy-loaded classes
         self.ChatPromptTemplate = None
@@ -37,7 +38,7 @@ class RAGService:
             return
 
         try:
-            print("INFO: Loading heavy AI heart in background...")
+            print("INFO: Loading AI core components...")
             from langchain_openai import ChatOpenAI, OpenAIEmbeddings
             from langchain_core.prompts import ChatPromptTemplate
             from langchain_core.output_parsers import StrOutputParser
@@ -47,41 +48,70 @@ class RAGService:
             from langchain_text_splitters import RecursiveCharacterTextSplitter
             import google.api_core.exceptions
             
-            # Store references for later use
+            # Store references
             self.ChatPromptTemplate = ChatPromptTemplate
             self.StrOutputParser = StrOutputParser
             self.google_exceptions = google.api_core.exceptions
 
-            # 1. Setup Embeddings
+            # 1. Setup Embeddings with Multi-Layer Fallback
+            embeddings = None
             if use_gemini:
-                print("DEBUG: Using models/text-embedding-004")
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
+                model_tries = [
+                    {"name": "models/text-embedding-004", "version": "v1beta"},
+                    {"name": "models/embedding-001", "version": "v1"}
+                ]
+                for try_cfg in model_tries:
+                    try:
+                        name = try_cfg["name"]
+                        ver = try_cfg["version"]
+                        print(f"DEBUG: Testing Gemini Embeddings ({name}, {ver})...")
+                        test_emb = GoogleGenerativeAIEmbeddings(
+                            model=name, 
+                            google_api_key=self.google_key,
+                            version=ver
+                        )
+                        test_emb.embed_query("test heartbeat")
+                        embeddings = test_emb
+                        print(f"SUCCESS: Connected to {name}")
+                        break
+                    except Exception as e:
+                        print(f"WARNING: Model {try_cfg['name']} failed: {e}")
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
-            
-            # 2. Setup Vector DB (Chroma)
-            self.vector_store = Chroma(
-                persist_directory=self.db_dir,
-                embedding_function=embeddings
-            )
-            
-            # --- AUTO-INGESTION FOR KPGU DATA ---
-            # If DB is empty, load the default dataset
-            try:
-                if not self.vector_store._collection.count():
-                    print("INFO: Vector DB is empty. Ingesting KPGU Knowledge Base...")
+
+            # 2. Setup Retrieval (Vector or Keyword Fallback)
+            if embeddings:
+                try:
+                    self.vector_store = Chroma(
+                        persist_directory=self.db_dir,
+                        embedding_function=embeddings
+                    )
                     
+                    # Auto-ingest if empty
+                    if not self.vector_store._collection.count():
+                        print("INFO: Vector DB empty. Ingesting...")
+                        loader = TextLoader("data/kpgu_extended_info.txt")
+                        docs = loader.load()
+                        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                        splits = splitter.split_documents(docs)
+                        self.vector_store.add_documents(splits)
+                    
+                    self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
+                except Exception as e:
+                    print(f"ERROR: Vector DB failure: {e}. Switching to Keyword Search.")
+                    embeddings = None # Trigger keyword fallback below
+            
+            # FINAL FALLBACK: Keyword Search
+            if not embeddings:
+                print("INFO: Initializing Basic Keyword Search (Offline Mode)")
+                try:
                     loader = TextLoader("data/kpgu_extended_info.txt")
                     docs = loader.load()
                     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    splits = splitter.split_documents(docs)
-                    self.vector_store.add_documents(splits)
-                    print(f"SUCCESS: Ingested {len(splits)} chunks of KPGU data.")
-            except Exception as e:
-                print(f"WARNING: Could not ingest default data: {e}")
-            
-            self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
-            
+                    self.fallback_chunks = splitter.split_documents(docs)
+                except Exception as e:
+                    print(f"ERROR: Keyword Search setup failed: {e}")
+
             # 3. Setup LLM
             if use_gemini:
                 self.llm = ChatGoogleGenerativeAI(
@@ -96,122 +126,77 @@ class RAGService:
                     temperature=0.3,
                     api_key=self.openai_key
                 )
-            print("SUCCESS: RAG Pipeline Initialized.")
+            print("SUCCESS: RAG Pipeline fully ready.")
         except Exception as e:
-            print(f"ERROR: Failed to initialize AI Pipeline: {e}")
+            print(f"CRITICAL: AI Setup failed: {e}")
 
     async def generate_response(self, request: ChatRequest) -> ChatResponse:
-        """
-        Generates a response using the RAG pipeline.
-        """
+        """Generates a response using retrieval and LLM."""
         query = request.query
         
-        # --- FALLBACK FOR MISSING KEY ---
         if not self.llm:
-            return ChatResponse(
-                response="⚠️ **AI Not Configured:** I cannot access my 'brain' yet. Please double-check your **Google Gemini API Key** in the Render Environment Variables or .env file.",
-                sources=["System Config"],
-                detected_language="en"
-            )
+            return ChatResponse(response="⚠️ Bot is not configured. Check API Keys.", sources=[], detected_language="en")
 
-        if not self.retriever:
-            return ChatResponse(
-                response="⚠️ **System is warming up!** The Knowledge Base is currently being initialized. Please wait 10 seconds and try again.",
-                sources=[],
-                detected_language="en"
-            )
-
+        # 1. Smarter Retrieval
+        docs = []
         try:
-            # 1. Retrieval
-            docs = self.retriever.invoke(query)
+            if self.retriever:
+                docs = self.retriever.invoke(query)
+            elif self.fallback_chunks:
+                # Basic Keyword Search
+                q_words = set(query.lower().split())
+                matches = []
+                for chunk in self.fallback_chunks:
+                    score = sum(1 for w in q_words if w in chunk.page_content.lower())
+                    if score > 0: matches.append((score, chunk))
+                matches.sort(key=lambda x: x[0], reverse=True)
+                docs = [m[1] for m in matches[:3]]
+        except Exception as e:
+            print(f"Retrieval error: {e}")
+
+        if not docs:
+            # If still nothing, let Gemini try with its own internal knowledge
+            context_text = "No specific college records found for this query."
+            sources = []
+        else:
             context_text = "\n\n".join([d.page_content for d in docs])
-            sources = list(set([str(d.metadata.get("source", "Unknown Doc")) for d in docs]))
+            sources = list(set([str(d.metadata.get("source", "KPGU Registry")) for d in docs]))
             
-            # 2. Prompt Engineering (Friendly & Smart)
-            template = """
-            You are KPGU Assistant, a smart and friendly AI for Drs. Kiran & Pallavi Patel Global University.
-            
-            **Instructions:**
-            1. **Primary Source**: Use the 'Context' below to answer questions about KPGU (Fees, Admissions, Rules).
-            2. **General Knowledge**: If the user asks general questions (e.g., "What is coding?", "How to write a resume?", "Good Morning"), answer them helpfully using your own knowledge. **Do NOT** say "I don't have this info" for general topics.
-            3. **Missing College Info**: If specific KPGU details are missing from the context, politely say: "I haven't been trained on that specific KPGU document yet."
-            4. **Language Rule (CRITICAL)**: 
-               - **DETECT** the language of the User's Message independently.
-               - IF user writes in **Hindi** (Devanagari) OR **Hinglish** (Hindi in English letters e.g., "kya hal hai"), YOU MUST REPLY IN **HINDI** (Devanagari script).
-               - IF user writes in **Gujarati** (Gujarati script or "Kem cho"), YOU MUST REPLY IN **GUJARATI**.
-               - IF user writes in **English**, YOU MUST REPLY IN **ENGLISH**.
-               - **DO NOT MIX LANGUAGES**.
-            5. **Tone**: Be proper, respectful, and friendly. Use emojis like 🎓, 📚, ✨.
-            
-            Context:
-            {context}
-            
-            User's Message: 
-            {question}
-            """
-            
+        # 2. Response Creation
+        template = """
+        You are KPGU Assistant for Drs. Kiran & Pallavi Patel Global University.
+        Context from records: {context}
+        User Query: {question}
+        
+        Rules:
+        - If the user asks about KPGU, use the context.
+        - If general chat, be friendly.
+        - Reply in the language the user uses (Hindi, Gujarati, or English).
+        """
+        
+        try:
             prompt = self.ChatPromptTemplate.from_template(template)
             chain = prompt | self.llm | self.StrOutputParser()
             
-            # 3. Generation with Retry Logic
             @retry(
                 retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
-                wait=wait_exponential(multiplier=1, min=2, max=10),
-                stop=stop_after_attempt(3)
+                wait=wait_exponential(multiplier=1, min=2, max=5),
+                stop=stop_after_attempt(2)
             )
-            async def generate_with_retry():
+            async def run_ai():
                 return await chain.ainvoke({"context": context_text, "question": query})
 
-            try:
-                response_text = await generate_with_retry()
-            except Exception as e:
-                # Catch Resource Exhausted specifically if possible
-                if self.google_exceptions and isinstance(e, self.google_exceptions.ResourceExhausted):
-                    return ChatResponse(
-                        response="⚠️ **High Traffic Alert:** The AI brain is currently overloaded. Please wait 30 seconds and try again.",
-                        sources=[],
-                        detected_language="en"
-                    )
-                raise e # Re-raise for general error handler
+            response_text = await run_ai()
             
-            # 4. Language Detection (Heuristic)
-            detected_lang = "en"
-            if any(0x0A80 <= ord(char) <= 0x0AFF for char in response_text[:50]): # Check for Gujarati
-                detected_lang = "gu"
-            elif any(0x0900 <= ord(char) <= 0x097F for char in response_text[:50]): # Check for Hindi/Devanagari
-                detected_lang = "hi"
+            # Simple Lang Detection
+            lang = "en"
+            if any(0x0A80 <= ord(c) <= 0x0AFF for c in response_text[:50]): lang = "gu"
+            elif any(0x0900 <= ord(c) <= 0x097F for c in response_text[:50]): lang = "hi"
 
-            return ChatResponse(
-                response=response_text,
-                sources=sources,
-                detected_language=detected_lang
-            )
+            return ChatResponse(response=response_text, sources=sources, detected_language=lang)
 
         except Exception as e:
-            error_msg = str(e).lower()
-            print(f"CRITICAL RAG ERROR: {error_msg}")
-            
-            # Catch Resource Exhausted / Quota Errors
-            if any(x in error_msg for x in ["429", "quota", "limit", "exhausted", "resource_exhausted"]):
-                 return ChatResponse(
-                    response="⚠️ **Gemini Limit Reached:** You are using the Free Tier and have sent too many messages quickly. Please wait **60 seconds** for the AI to breathe and then try again! 🎓",
-                    sources=[],
-                    detected_language="en"
-                )
-            
-            # Catch Context Window / Token Errors
-            if "context_length" in error_msg or "tokens" in error_msg:
-                return ChatResponse(
-                    response="⚠️ **Message too long:** This question is a bit too big for me. Can you ask it in a shorter way?",
-                    sources=[],
-                    detected_language="en"
-                )
-
-            # Generic but tracked fallback
-            return ChatResponse(
-                response=f"I encountered an issue (Code: P-3). Please wait 30 seconds. If it persists, check if your API key is valid. Error: {str(e)[:200]}",
-                sources=[],
-                detected_language="en"
-            )
+            print(f"Final AI Error: {e}")
+            return ChatResponse(response=f"I'm sorry, I hit a snag: {str(e)[:100]}", sources=[], detected_language="en")
 
 rag_service = RAGService()
