@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tenacity import retry,  stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -40,12 +41,25 @@ class RAGService:
             return
 
         try:
-            # 1. Setup Embeddings
+            # 1. Setup Embeddings with Fallback Logic
+            embeddings = None
+            
             if use_gemini:
-                # Try without models/ prefix if models/ fails
-                embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001", google_api_key=self.google_key)
-            else:
+                try:
+                    print("DEBUG: Attempting Google Embeddings (models/text-embedding-004)...")
+                    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
+                    # Test the embedding with a dummy call to verify it's not a 404
+                    embeddings.embed_query("test")
+                    print("SUCCESS: Google Embeddings (text-embedding-004) active.")
+                except Exception as e:
+                    print(f"WARNING: Google Embeddings failed: {e}. Falling back to HuggingFace (Offline).")
+                    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                    print("SUCCESS: HuggingFace Embeddings (Offline) active.")
+            elif self.openai_key and "placeholder" not in self.openai_key:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
+            else:
+                print("INFO: No keys provided. Using HuggingFace Embeddings (Offline) by default.")
+                embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
             
             # 2. Setup Vector DB (Chroma)
             self.vector_store = Chroma(

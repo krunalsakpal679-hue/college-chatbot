@@ -5,6 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.core.config import settings
 
 class IngestionService:
@@ -61,8 +62,15 @@ class IngestionService:
         splits = text_splitter.split_documents(documents)
         
         try:
+            embeddings = None
             if use_gemini:
-                embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001", google_api_key=self.google_key)
+                try:
+                    embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.google_key)
+                    # Test
+                    embeddings.embed_query("test")
+                except Exception:
+                    print("WARNING: Ingestion falling back to HuggingFace embeddings.")
+                    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
                 
