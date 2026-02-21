@@ -42,8 +42,8 @@ class RAGService:
         try:
             # 1. Setup Embeddings
             if use_gemini:
-                # Use models/embedding-001 for maximum compatibility with free tier
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=self.google_key)
+                # Try without models/ prefix if models/ fails
+                embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001", google_api_key=self.google_key)
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
             
@@ -194,7 +194,7 @@ class RAGService:
 
             # Generic but tracked fallback
             return ChatResponse(
-                response=f"I encountered an issue (Code: P-3). Please wait 30 seconds. If it persists, check if your API key is valid. Error: {str(e)[:50]}...",
+                response=f"I encountered an issue (Code: P-3). Please wait 30 seconds. If it persists, check if your API key is valid. Error: {str(e)[:200]}",
                 sources=[],
                 detected_language="en"
             )

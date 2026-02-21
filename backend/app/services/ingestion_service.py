@@ -62,7 +62,7 @@ class IngestionService:
         
         try:
             if use_gemini:
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=self.google_key)
+                embeddings = GoogleGenerativeAIEmbeddings(model="embedding-001", google_api_key=self.google_key)
             else:
                 embeddings = OpenAIEmbeddings(api_key=self.openai_key)
                 
