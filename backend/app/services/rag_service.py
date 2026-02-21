@@ -95,7 +95,7 @@ class RAGService:
         # --- FALLBACK FOR MISSING KEY ---
         if not self.llm:
             return ChatResponse(
-                response="**Configuration Required:**\nI am ready to work! Please add your **Google Gemini API Key** (Free) or **OpenAI API Key** to the `.env` file in the backend folder.",
+                response="⚠️ **AI Not Configured:** I cannot access my 'brain' yet. Please double-check your **Google Gemini API Key** in the Render Environment Variables or .env file.",
                 sources=["System Config"],
                 detected_language="en"
             )
@@ -171,13 +171,13 @@ class RAGService:
             )
 
         except Exception as e:
-            print(f"RAG Error: {e}")
             error_msg = str(e).lower()
+            print(f"CRITICAL RAG ERROR: {error_msg}")
             
-            # Catch Resource Exhausted / Quota Errors specifically
+            # Catch Resource Exhausted / Quota Errors
             if any(x in error_msg for x in ["429", "quota", "limit", "exhausted", "resource_exhausted"]):
                  return ChatResponse(
-                    response="⚠️ **Gemini Free Tier Limit:** The AI is receiving too many requests. Please wait about 30-60 seconds and try again. 🎓",
+                    response="⚠️ **Gemini Limit Reached:** You are using the Free Tier and have sent too many messages quickly. Please wait **60 seconds** for the AI to breathe and then try again! 🎓",
                     sources=[],
                     detected_language="en"
                 )
@@ -185,13 +185,14 @@ class RAGService:
             # Catch Context Window / Token Errors
             if "context_length" in error_msg or "tokens" in error_msg:
                 return ChatResponse(
-                    response="⚠️ **Message too long:** Please try asking a shorter or more specific question.",
+                    response="⚠️ **Message too long:** This question is a bit too big for me. Can you ask it in a shorter way?",
                     sources=[],
                     detected_language="en"
                 )
 
+            # Generic but tracked fallback
             return ChatResponse(
-                response="I encountered an internal error while processing your request. Please try again in secondary.",
+                response=f"I encountered an issue (Code: P-3). Please wait 30 seconds. If it persists, check if your API key is valid. Error: {str(e)[:50]}...",
                 sources=[],
                 detected_language="en"
             )
