@@ -112,10 +112,11 @@ class RAGService:
                 except Exception as e:
                     print(f"ERROR: Keyword Search setup failed: {e}")
 
-            # 3. Setup LLM
+            # 3. Setup LLM with Fallback
             if use_gemini:
+                self.llm_models = ["gemini-2.0-flash", "gemini-1.5-flash"]
                 self.llm = ChatGoogleGenerativeAI(
-                    model="gemini-2.0-flash",
+                    model=self.llm_models[0],
                     temperature=0.3,
                     google_api_key=self.google_key,
                     convert_system_message_to_human=True
@@ -176,17 +177,52 @@ class RAGService:
         
         try:
             prompt = self.ChatPromptTemplate.from_template(template)
-            chain = prompt | self.llm | self.StrOutputParser()
             
-            @retry(
-                retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
-                wait=wait_exponential(multiplier=1, min=2, max=5),
-                stop=stop_after_attempt(2)
-            )
-            async def run_ai():
-                return await chain.ainvoke({"context": context_text, "question": query})
+            # --- AI EXECUTION WITH DUAL-MODEL FALLBACK ---
+            async def run_ai_with_fallback(current_llm, context, q):
+                chain = prompt | current_llm | self.StrOutputParser()
+                return await chain.ainvoke({"context": context, "question": q})
 
-            response_text = await run_ai()
+            response_text = None
+            last_error = ""
+
+            # Try primary then secondary if Gemini
+            models_to_try = [self.llm]
+            if hasattr(self, 'llm_models') and len(self.llm_models) > 1:
+                # Add secondary model
+                secondary_llm = ChatGoogleGenerativeAI(
+                    model=self.llm_models[1],
+                    temperature=0.3,
+                    google_api_key=self.google_key,
+                    convert_system_message_to_human=True
+                )
+                models_to_try.append(secondary_llm)
+
+            for i, model in enumerate(models_to_try):
+                try:
+                    @retry(
+                        retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
+                        wait=wait_exponential(multiplier=1, min=1, max=3),
+                        stop=stop_after_attempt(2)
+                    )
+                    async def attempt():
+                        return await run_ai_with_fallback(model, context_text, query)
+                    
+                    response_text = await attempt()
+                    if response_text: break
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"LLM Try {i+1} failed: {e}")
+                    continue
+
+            if not response_text:
+                 if "429" in last_error or "exhausted" in last_error.lower():
+                     return ChatResponse(
+                        response="⚠️ **Free Tier Limit Reached:** Google Gemini is currently limiting free requests. Please wait **30 seconds** and try again! 🎓",
+                        sources=[],
+                        detected_language="en"
+                    )
+                 raise Exception(last_error)
             
             # Simple Lang Detection
             lang = "en"
@@ -197,6 +233,6 @@ class RAGService:
 
         except Exception as e:
             print(f"Final AI Error: {e}")
-            return ChatResponse(response=f"I'm sorry, I hit a snag: {str(e)[:100]}", sources=[], detected_language="en")
+            return ChatResponse(response=f"Gemini is busy, please wait a moment and try again! (Ref: Q-429)", sources=[], detected_language="en")
 
 rag_service = RAGService()
