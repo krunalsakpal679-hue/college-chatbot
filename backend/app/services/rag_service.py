@@ -70,7 +70,7 @@ class RAGService:
             # 3. Setup LLM
             if use_gemini:
                 self.llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash",
+                    model="gemini-2.0-flash",
                     temperature=0.3,
                     google_api_key=self.google_key,
                     convert_system_message_to_human=True
