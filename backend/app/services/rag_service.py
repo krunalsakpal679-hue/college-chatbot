@@ -115,15 +115,25 @@ class RAGService:
                 except Exception as e:
                     print(f"ERROR: Keyword Search setup failed: {e}")
 
-            # 3. Setup LLM with Fallback
+            # 3. Setup LLM with Multi-Layer Fallback
             if use_gemini:
-                self.llm_models = ["gemini-2.0-flash", "gemini-1.5-flash"]
-                self.llm = self.ChatGoogleGenerativeAI(
-                    model=self.llm_models[0],
-                    temperature=0.3,
-                    google_api_key=self.google_key,
-                    convert_system_message_to_human=True
-                )
+                # Order: 2.0 (Fastest), 1.5-8b (Highest Quota), 1.5-flash (Reliable)
+                self.llm_models = ["gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"]
+                self.llms = []
+                for m_name in self.llm_models:
+                    try:
+                        llm = self.ChatGoogleGenerativeAI(
+                            model=m_name,
+                            temperature=0.3,
+                            google_api_key=self.google_key,
+                            convert_system_message_to_human=True
+                        )
+                        self.llms.append(llm)
+                    except Exception as e:
+                        print(f"WARNING: Could not preload {m_name}: {e}")
+                
+                # Set default llm to the first one
+                self.llm = self.llms[0] if self.llms else None
             else:
                 self.llm = ChatOpenAI(
                     model="gpt-3.5-turbo", 
@@ -136,19 +146,28 @@ class RAGService:
 
     async def generate_response(self, request: ChatRequest) -> ChatResponse:
         """Generates a response using retrieval and LLM."""
-        query = request.query
+        query = request.query.strip().lower()
         
+        # --- GREETING MOCKER (Save Quota) ---
+        greetings = ["hi", "hii", "hiii", "hello", "hey", "hola", "namaste", "good morning", "good evening"]
+        if query in greetings:
+            return ChatResponse(
+                response="Hello! I am your KPGU Assistant. 🎓 How can I help you today with information about admissions, courses, or college services? ✨",
+                sources=["System Wisdom"],
+                detected_language="en"
+            )
+
         if not self.llm:
-            return ChatResponse(response="⚠️ Bot is not configured. Check API Keys.", sources=[], detected_language="en")
+            return ChatResponse(response="⚠️ Bot is currently over-capacity. Please try again in 1 minute.", sources=[], detected_language="en")
 
         # 1. Smarter Retrieval
         docs = []
         try:
             if self.retriever:
-                docs = self.retriever.invoke(query)
+                docs = self.retriever.invoke(request.query)
             elif self.fallback_chunks:
                 # Basic Keyword Search
-                q_words = set(query.lower().split())
+                q_words = set(query.split())
                 matches = []
                 for chunk in self.fallback_chunks:
                     score = sum(1 for w in q_words if w in chunk.page_content.lower())
@@ -159,7 +178,6 @@ class RAGService:
             print(f"Retrieval error: {e}")
 
         if not docs:
-            # If still nothing, let Gemini try with its own internal knowledge
             context_text = "No specific college records found for this query."
             sources = []
         else:
@@ -181,47 +199,37 @@ class RAGService:
         try:
             prompt = self.ChatPromptTemplate.from_template(template)
             
-            # --- AI EXECUTION WITH DUAL-MODEL FALLBACK ---
-            async def run_ai_with_fallback(current_llm, context, q):
+            async def run_ai_with_chain(current_llm, context, q):
                 chain = prompt | current_llm | self.StrOutputParser()
                 return await chain.ainvoke({"context": context, "question": q})
 
             response_text = None
             last_error = ""
 
-            # Try primary then secondary if Gemini
-            models_to_try = [self.llm]
-            if self.llm_models and len(self.llm_models) > 1:
-                # Add secondary model
-                secondary_llm = self.ChatGoogleGenerativeAI(
-                    model=self.llm_models[1],
-                    temperature=0.3,
-                    google_api_key=self.google_key,
-                    convert_system_message_to_human=True
-                )
-                models_to_try.append(secondary_llm)
-
+            # Try all pre-loaded models in sequence
+            models_to_try = self.llms if hasattr(self, 'llms') and self.llms else [self.llm]
+            
             for i, model in enumerate(models_to_try):
                 try:
                     @retry(
                         retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
-                        wait=wait_exponential(multiplier=1, min=1, max=3),
+                        wait=wait_exponential(multiplier=1, min=1, max=2),
                         stop=stop_after_attempt(2)
                     )
                     async def attempt():
-                        return await run_ai_with_fallback(model, context_text, query)
+                        return await run_ai_with_chain(model, context_text, request.query)
                     
                     response_text = await attempt()
                     if response_text: break
                 except Exception as e:
                     last_error = str(e)
-                    print(f"LLM Try {i+1} failed: {e}")
+                    print(f"LLM Fallback {i+1} ({getattr(model, 'model_name', 'unknown')}) failed: {e}")
                     continue
 
             if not response_text:
                  if "429" in last_error or "exhausted" in last_error.lower():
                      return ChatResponse(
-                        response="⚠️ **Free Tier Limit Reached:** Google Gemini is currently limiting free requests. Please wait **30 seconds** and try again! 🎓",
+                        response="⚠️ **College AI is Resting:** Many students are asking questions! Google Gemini has reached its free limit. Please wait **20-30 seconds** and ask again—I'll be back online then! 🎓✨",
                         sources=[],
                         detected_language="en"
                     )
@@ -236,6 +244,6 @@ class RAGService:
 
         except Exception as e:
             print(f"Final AI Error: {e}")
-            return ChatResponse(response=f"Gemini is busy, please wait a moment and try again! (Ref: Q-429)", sources=[], detected_language="en")
+            return ChatResponse(response="I am experiencing high traffic right now. Please try again in 10 seconds! 🎓", sources=[], detected_language="en")
 
 rag_service = RAGService()
