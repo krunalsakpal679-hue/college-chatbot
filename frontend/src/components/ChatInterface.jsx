@@ -30,12 +30,8 @@ function ChatInterface() {
         setIsLoading(true);
 
         try {
-<<<<<<< HEAD
             const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/v1/chat";
             const response = await fetch(API_URL, {
-=======
-            const response = await fetch("http://127.0.0.1:8000/api/v1/chat", {
->>>>>>> 80c811de0efa2a55d5710566614515347106f637
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ query: input }),
@@ -61,7 +57,6 @@ function ChatInterface() {
 
     return (
         <div
-<<<<<<< HEAD
             className="relative flex flex-col h-[100dvh] w-full bg-cover bg-center font-sans text-gray-800"
             style={{ backgroundImage: "url('/campus_bg.jpg')" }}
         >
@@ -70,16 +65,6 @@ function ChatInterface() {
 
             {/* Main Content Card */}
             <div className="relative z-10 flex flex-col h-full md:h-[90vh] md:w-[90vw] md:max-w-5xl md:mx-auto md:my-auto bg-white/10 backdrop-blur-md md:border border-white/20 md:rounded-2xl shadow-2xl overflow-hidden">
-=======
-            className="relative flex flex-col h-screen w-full bg-cover bg-center font-sans text-gray-800"
-            style={{ backgroundImage: "url('/campus_bg.jpg')" }}
-        >
-            {/* Dark Overlay for Readability */}
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-0"></div>
-
-            {/* Main Content Card - Floating Glass Effect */}
-            <div className="relative z-10 flex flex-col h-full md:h-[90vh] md:w-[90vw] md:max-w-5xl md:mx-auto md:my-auto bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-2xl overflow-hidden">
->>>>>>> 80c811de0efa2a55d5710566614515347106f637
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 bg-[#003366]/90 border-b border-white/10 text-white">
