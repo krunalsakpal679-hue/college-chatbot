@@ -17,7 +17,9 @@ class RAGService:
         # References for lazy-loaded classes
         self.ChatPromptTemplate = None
         self.StrOutputParser = None
+        self.ChatGoogleGenerativeAI = None # Add this
         self.google_exceptions = None
+        self.llm_models = [] # Initialize this
         
     def initialize(self):
         """Public wrapper for async-safe initialization."""
@@ -51,6 +53,7 @@ class RAGService:
             # Store references
             self.ChatPromptTemplate = ChatPromptTemplate
             self.StrOutputParser = StrOutputParser
+            self.ChatGoogleGenerativeAI = ChatGoogleGenerativeAI # Fixed: Store this
             self.google_exceptions = google.api_core.exceptions
 
             # 1. Setup Embeddings with Multi-Layer Fallback
@@ -115,7 +118,7 @@ class RAGService:
             # 3. Setup LLM with Fallback
             if use_gemini:
                 self.llm_models = ["gemini-2.0-flash", "gemini-1.5-flash"]
-                self.llm = ChatGoogleGenerativeAI(
+                self.llm = self.ChatGoogleGenerativeAI(
                     model=self.llm_models[0],
                     temperature=0.3,
                     google_api_key=self.google_key,
@@ -188,9 +191,9 @@ class RAGService:
 
             # Try primary then secondary if Gemini
             models_to_try = [self.llm]
-            if hasattr(self, 'llm_models') and len(self.llm_models) > 1:
+            if self.llm_models and len(self.llm_models) > 1:
                 # Add secondary model
-                secondary_llm = ChatGoogleGenerativeAI(
+                secondary_llm = self.ChatGoogleGenerativeAI(
                     model=self.llm_models[1],
                     temperature=0.3,
                     google_api_key=self.google_key,
