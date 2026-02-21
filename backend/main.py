@@ -2,8 +2,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.endpoints import chat
-from app.db.database import engine, Base
+from app.db.database import engine
 from app.db import models
+from contextlib import asynccontextmanager
+import asyncio
+from app.services.rag_service import rag_service
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize AI in background
+    asyncio.create_task(asyncio.to_thread(rag_service.initialize))
+    yield
+    # Shutdown logic (if any) could go here
 
 # Create Database Tables
 models.Base.metadata.create_all(bind=engine)
@@ -11,7 +21,8 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    description="Backend API for Language-Agnostic Generative AI College Chatbot"
+    description="Backend API for Language-Agnostic Generative AI College Chatbot",
+    lifespan=lifespan
 )
 
 # Set all CORS enabled origins (Allow ALL for development)

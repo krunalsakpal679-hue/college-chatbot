@@ -13,7 +13,7 @@ from app.core.config import settings
 
 class RAGService:
     def __init__(self):
-        # Initialize Core Components
+        # Initialize Core Components (Keys and Dirs only)
         self.openai_key = settings.OPENAI_API_KEY
         self.google_key = settings.GOOGLE_API_KEY
         self.db_dir = settings.CHROMA_DB_DIR
@@ -21,6 +21,8 @@ class RAGService:
         self.retriever = None
         self.llm = None
         
+    def initialize(self):
+        """Public wrapper for async-safe initialization."""
         self._initialize_pipeline()
 
     def _initialize_pipeline(self):

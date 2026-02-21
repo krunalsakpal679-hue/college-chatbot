@@ -31,17 +31,16 @@ Follow these steps to put your chatbot online for everyone to use.
     *   Import your repository: `krunalsakpal679-hue/college-chatbot`.
 3.  **Configure Project Settings**:
     *   **Framework Preset**: `Vite`.
-    *   **Root Directory**: `frontend` (⚠️ **CRITICAL: Set this to `frontend`!**)
+    *   **Root Directory**: `frontend`.
     *   **Build Command**: `npm run build`
     *   **Output Directory**: `dist`
 4.  **Add Environment Variables**:
     *   Go to **Settings** -> **Environment Variables**.
     *   Add:
         *   **Key**: `VITE_API_URL`
-        *   **Value**: `https://your-backend-name.onrender.com/api/v1/chat`
-        *   *(Make sure to replace with your ACTUAL Render URL and keep the `/api/v1/chat` at the end!)*
+        *   **Value**: `https://college-chatbot-backend-5o9u.onrender.com/api/v1/chat`
 5.  **Deploy**:
     *   Go to the **Deployments** tab.
-    *   Click **"Redeploy"** on the latest item to make sure the new environment variable is used.
+    *   Click **"Redeploy"** on the latest item.
 
 ✅ **Success!** Your KPGU Chatbot is now fully live. The Vercel frontend will talk to the Render backend, providing accurate college information from your database.
