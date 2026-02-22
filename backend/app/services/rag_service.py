@@ -58,6 +58,10 @@ class RAGService:
             self.ChatGoogleGenerativeAI = ChatGoogleGenerativeAI
             self.google_exceptions = google.api_core.exceptions
 
+            # Fix Paths: data is in backend/data, this file is in backend/app/services
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            data_file = os.path.join(current_dir, "..", "..", "data", "kpgu_extended_info.txt")
+
             # 1. Embeddings
             embeddings = None
             if use_gemini:
@@ -77,16 +81,15 @@ class RAGService:
                 try:
                     self.vector_store = Chroma(persist_directory=self.db_dir, embedding_function=embeddings)
                     if not self.vector_store._collection.count():
-                        loader = TextLoader("data/kpgu_extended_info.txt")
+                        loader = TextLoader(data_file)
                         docs = loader.load()
                         self.vector_store.add_documents(RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(docs))
-                    self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 4}) # Increase k for better context
+                    self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 4})
                 except:
                     embeddings = None
 
             # 3. LLMs
             if use_gemini:
-                # Absolute Max Coverage Model List
                 self.llm_models = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-1.5-pro"]
                 for m in self.llm_models:
                     try:
@@ -98,7 +101,7 @@ class RAGService:
                 self.llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key=self.openai_key)
             
             # 4. Fallback Chunks
-            loader = TextLoader("data/kpgu_extended_info.txt")
+            loader = TextLoader(data_file)
             self.fallback_chunks = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=300).split_documents(loader.load())
             
         except Exception as e:
@@ -110,17 +113,19 @@ class RAGService:
         now = self.time.time()
 
         # Instant Greeting Mocker
-        if query in ["hi", "hii", "hiii", "hello", "hey", "namaste", "what"]:
-            if query == "what":
-                 return ChatResponse(response="What would you like to know about KPGU? You can ask about fees, courses, or admissions! 🎓", sources=["System"], detected_language="en")
-            return ChatResponse(response="Hello! I am your KPGU Assistant. 🎓 How can I help you with fees, courses, or college services today?", sources=["System"], detected_language="en")
+        if query in ["hi", "hii", "hiii", "hello", "hey", "namaste"]:
+            return ChatResponse(
+                response="Hello! I am your KPGU Assistant. 🎓 I can help you with information about admissions, courses, and college fees. How can I assist you today?",
+                sources=["System Wisdom"],
+                detected_language="en"
+            )
 
         # Cache Check
         if query in self.response_cache:
             return self.response_cache[query]
 
         if not self.is_ready:
-            return ChatResponse(response="⚙️ System is warming up university records. Please wait 5 seconds! 🎓", sources=[], detected_language="en")
+            return ChatResponse(response="⚙️ System is warming up university records. Please try again in 5 seconds! 🎓", sources=[], detected_language="en")
 
         # 1. Retrieval
         docs = []
@@ -134,17 +139,17 @@ class RAGService:
         except: pass
 
         if not docs:
-            return ChatResponse(response="I couldn't find specific information for that in the university records. Could you please specify if you're asking about B.Tech, Fees, or Admissions? 🎓", sources=[], detected_language="en")
+            return ChatResponse(response="I couldn't find specific details for that in the university records. Could you please specify if you're asking about B.Tech, Fees, or Admissions? 🎓", sources=[], detected_language="en")
 
         context_text = "\n\n".join([d.page_content for d in docs])
-        sources = list(set([str(d.metadata.get("source", "KPGU Registry")) for d in docs]))
+        sources = list(set([str(d.metadata.get("source", "KPGU Portal")) for d in docs]))
 
         # 2. AI Execution
         template = """
-        You are KPGU Assistant. Use the context to answer. 
+        You are KPGU Assistant. Answer based on the context.
         Context: {context}
         Question: {question}
-        Reply in the user's language. Be concise and accurate.
+        Reply professionally in the user's language.
         """
         prompt = self.ChatPromptTemplate.from_template(template)
         
@@ -157,44 +162,35 @@ class RAGService:
             models_to_try = [(self.llm, "default")]
 
         resp_text = None
-        last_err = ""
-        
         for model_obj, m_name in models_to_try:
             try:
                 @retry(
                     retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
-                    wait=wait_exponential(multiplier=1, min=0.3, max=0.8),
-                    stop=stop_after_attempt(3) # Increase retries
+                    wait=wait_exponential(multiplier=1, min=0.5, max=1.2),
+                    stop=stop_after_attempt(3)
                 )
                 async def run():
                     chain = prompt | model_obj | self.StrOutputParser()
                     return await chain.ainvoke({"context": context_text, "question": query_raw})
                 
                 resp_text = await run()
-                if resp_text: break
+                if resp_text: 
+                    print(f"SUCCESS: Response generated using model {m_name}")
+                    break
             except Exception as e:
-                last_err = str(e)
-                if "429" in last_err or "exhausted" in last_err.lower():
-                    self.model_cooldowns[m_name] = now + 45 # Moderate cooldown
+                err_msg = str(e)
+                if "429" in err_msg or "exhausted" in err_msg.lower():
+                    print(f"WARNING: Model {m_name} is busy. Cooling down...")
+                    self.model_cooldowns[m_name] = now + 60
                 continue
 
-        # --- CONVERSATIONAL DETERMINISTIC FALLBACK (Zero-Error) ---
+        # --- CONVERSATIONAL FALLBACK (Zero-Failure) ---
         if not resp_text:
-            print("API LIMIT REACHED. Using Conversational Fallback.")
-            # Format the answer based on query
+            print("INFO: AI Limit reached. Using conversational local brain.")
             best_info = docs[0].page_content
-            # Try to find a specific mention of the key topic (like Fees or CSE)
-            keywords = ["fee", "admission", "course", "placement", "placement", "hostel"]
-            matched_info = ""
-            for d in docs:
-                if any(k in d.page_content.lower() for k in query.split()):
-                    matched_info = d.page_content
-                    break
-            if not matched_info: matched_info = best_info
-            
-            # Conversational formatting
-            resp_text = f"Based on university records: {matched_info[:600]}... \n\nI am currently providing information directly from our registry due to high server traffic. 🎓"
-            resp_text = re.sub(r'#+\s*', '', resp_text) # Clean up markdown headers
+            # Clean and polish for a professional conversational look
+            best_info = re.sub(r'#+\s*', '', best_info).replace('\n', ' ').strip()
+            resp_text = f"According to university records: {best_info[:650]}... \n\nI hope this helps! Feel free to ask more specific questions about this topic. 🎓"
 
         # Lang Detect & Cache
         lang = "gu" if any(0x0A80 <= ord(c) <= 0x0AFF for c in resp_text[:100]) else ("hi" if any(0x0900 <= ord(c) <= 0x097F for c in resp_text[:100]) else "en")

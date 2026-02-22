@@ -1,4 +1,4 @@
-
+import os
 from typing import List, Union
 from pydantic import AnyHttpUrl, field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = Field(default="AIza-placeholder", env="GOOGLE_API_KEY") # For Free Gemini API
     CHROMA_DB_DIR: str = "./chroma_db"
 
-    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(
+        case_sensitive=True, 
+        env_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"), 
+        env_file_encoding='utf-8',
+        extra='ignore'
+    )
 
 settings = Settings()

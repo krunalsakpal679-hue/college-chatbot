@@ -10,10 +10,11 @@
 KPGU offers over 36 undergraduate (UG), postgraduate (PG), diploma, and Ph.D. programs across various faculties.
 
 ### Engineering (Krishna School of Technology)
-- **Courses (B.Tech)**: Computer Engineering, Civil Engineering, Electrical Engineering, Electronics & Communication Engineering, Mechanical Engineering, and Information Technology.
+- **Courses (B.Tech)**: Computer Engineering (CSE), Civil Engineering, Electrical Engineering (EE), Electronics & Communication Engineering (BEC/ECE), Mechanical Engineering (ME), and Information Technology (IT).
 - **Courses (M.Tech)**: Data Science, Advanced Manufacturing Systems.
 - **Eligibility**: 10+2 with Physics, Chemistry, and Mathematics (minimum 45% marks, 40% for reserved categories).
 - **Admission**: Based on JEE Main or GUJCET scores followed by ACPC counseling.
+- **Fees for B.Tech/CSE**: Approximately ₹3.99 Lakhs - ₹4.94 Lakhs for the total 4-year duration.
 
 ### Pharmacy (Krishna School of Pharmacy)
 - **Courses**: B.Pharm, M.Pharm.
