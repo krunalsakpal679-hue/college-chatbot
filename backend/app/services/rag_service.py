@@ -43,7 +43,6 @@ class RAGService:
             return
 
         try:
-            # All heavy imports inside
             from langchain_openai import ChatOpenAI, OpenAIEmbeddings
             from langchain_core.prompts import ChatPromptTemplate
             from langchain_core.output_parsers import StrOutputParser
@@ -86,7 +85,8 @@ class RAGService:
 
             # 3. LLMs
             if use_gemini:
-                self.llm_models = ["gemini-2.0-flash", "gemini-1.5-flash-8b", "gemini-1.5-flash"]
+                # Highly Stable Flash Models
+                self.llm_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b"]
                 for m in self.llm_models:
                     try:
                         obj = ChatGoogleGenerativeAI(model=m, temperature=0.3, google_api_key=self.google_key, convert_system_message_to_human=True)
@@ -96,7 +96,7 @@ class RAGService:
             else:
                 self.llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.3, api_key=self.openai_key)
             
-            # 4. Fallback Chunks (Always load for safety)
+            # 4. Fallback Chunks
             loader = TextLoader("data/kpgu_extended_info.txt")
             self.fallback_chunks = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(loader.load())
             
@@ -129,7 +129,10 @@ class RAGService:
                 docs = [m[1] for m in sorted([x for x in matches if x[0] > 0], key=lambda x: x[0], reverse=True)[:3]]
         except: pass
 
-        context_text = "\n\n".join([d.page_content for d in docs]) if docs else "No specific records found."
+        if not docs:
+            return ChatResponse(response="I couldn't find specific records for that. Could you try asking in a different way? (Example: 'Fees' or 'B.Tech courses')", sources=[], detected_language="en")
+
+        context_text = "\n\n".join([d.page_content for d in docs])
         sources = list(set([str(d.metadata.get("source", "KPGU Portal")) for d in docs]))
 
         # 2. AI Execution (Multi-Model Speed Rotation)
@@ -146,6 +149,8 @@ class RAGService:
 
         resp_text = None
         last_err = ""
+        
+        # Try AI First
         for model_obj, m_name in models_to_try:
             try:
                 @retry(
@@ -162,11 +167,19 @@ class RAGService:
             except Exception as e:
                 last_err = str(e)
                 if "429" in last_err or "exhausted" in last_err.lower():
-                    self.model_cooldowns[m_name] = now + 60
+                    self.model_cooldowns[m_name] = now + 90 # Longer cooldown
                 continue
 
+        # --- FINAL ZERO-FAILURE FALLBACK: Direct Answer Extraction ---
         if not resp_text:
-            return ChatResponse(response="⚠️ The college AI is very busy right now. Please wait 15 seconds and try again! 🎓", sources=[], detected_language="en")
+            print("CRITICAL: AI API Exhausted. Switching to Deterministic Fallback.")
+            # Build a deterministic answer from context
+            best_chunk = docs[0].page_content
+            # Simple cleaning for better presentation
+            clean_chunk = best_chunk.replace('\n', ' ').strip()
+            if len(clean_chunk) > 500: clean_chunk = clean_chunk[:497] + "..."
+            
+            resp_text = f"University Records Found:\n\n{clean_chunk}\n\n(Note: Serving from local records due to high traffic.)"
 
         # Lang Detect & Cache
         lang = "gu" if any(0x0A80 <= ord(c) <= 0x0AFF for c in resp_text[:50]) else ("hi" if any(0x0900 <= ord(c) <= 0x097F for c in resp_text[:50]) else "en")
