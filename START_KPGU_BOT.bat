@@ -1,30 +1,29 @@
 @echo off
+setlocal
 echo ==========================================
-echo   🚀 KPGU BOT - 1-CLICK STARTUP
+echo   🚀 KPGU BOT - INTEGRATED LOCAL SERVER
 echo ==========================================
 echo.
+set "ROOT=%~dp0"
+cd /d "%ROOT%backend"
 
-:: Start Backend
-echo [1/2] Launching Backend Server...
-start "KPGU_BACKEND" START_BACKEND.bat
+if not exist "venv\Scripts\python.exe" (
+    echo [ERROR] Virtual environment (venv) not found!
+    echo Please make sure you are in the college-chatbot folder.
+    pause
+    exit /b
+)
 
-:: Wait for backend
-echo Waiting 5 seconds for backend to warm up...
-timeout /t 5
-
-:: Start Frontend
-echo [2/2] Launching Frontend UI...
-start "KPGU_FRONTEND" START_FRONTEND.bat
-
+echo [1/1] Starting KPGU Assistant on http://127.0.0.1:8080 ...
+echo [INFO] UI is now hosted on the SAME server as the AI.
+echo [INFO] AI initialization is running in the background.
 echo.
-echo ==========================================
-echo   ✅ SUCCESS: Check the two new windows!
-echo   1. Backend: http://127.0.0.1:8000
-echo   2. Frontend: http://127.0.0.1:5173 
-echo   
-echo   If you see "Refused to connect", 
-echo   wait 5 more seconds and refresh.
-echo.
-echo   Happy Submission! 🎓✨
-echo ==========================================
+:: Starting on port 8080 to avoid common Windows conflicts on 8000
+venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8080
+
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Server failed to start.
+    echo Please check if port 8080 is already in use.
+    pause
+)
 pause
