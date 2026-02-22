@@ -3,6 +3,7 @@ import os
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from app.core.config import settings
 import time
+import re
 
 class RAGService:
     def __init__(self):
@@ -79,17 +80,17 @@ class RAGService:
                         loader = TextLoader("data/kpgu_extended_info.txt")
                         docs = loader.load()
                         self.vector_store.add_documents(RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(docs))
-                    self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 3})
+                    self.retriever = self.vector_store.as_retriever(search_kwargs={"k": 4}) # Increase k for better context
                 except:
                     embeddings = None
 
             # 3. LLMs
             if use_gemini:
-                # Highly Stable Flash Models
-                self.llm_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-8b"]
+                # Absolute Max Coverage Model List
+                self.llm_models = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-1.5-pro"]
                 for m in self.llm_models:
                     try:
-                        obj = ChatGoogleGenerativeAI(model=m, temperature=0.3, google_api_key=self.google_key, convert_system_message_to_human=True)
+                        obj = ChatGoogleGenerativeAI(model=m, temperature=0.2, google_api_key=self.google_key, convert_system_message_to_human=True)
                         self.llms.append(obj)
                     except: pass
                 self.llm = self.llms[0] if self.llms else None
@@ -98,45 +99,53 @@ class RAGService:
             
             # 4. Fallback Chunks
             loader = TextLoader("data/kpgu_extended_info.txt")
-            self.fallback_chunks = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(loader.load())
+            self.fallback_chunks = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=300).split_documents(loader.load())
             
         except Exception as e:
             print(f"Startup Error: {e}")
 
     async def generate_response(self, request: ChatRequest) -> ChatResponse:
-        query = request.query.strip().lower()
+        query_raw = request.query.strip()
+        query = query_raw.lower()
         now = self.time.time()
 
         # Instant Greeting Mocker
-        if query in ["hi", "hii", "hiii", "hello", "hey", "namaste"]:
-            return ChatResponse(response="Hello! I am your KPGU Assistant. 🎓 I can help with info on fees, courses, and admissions. How can I assist you?", sources=["System"], detected_language="en")
+        if query in ["hi", "hii", "hiii", "hello", "hey", "namaste", "what"]:
+            if query == "what":
+                 return ChatResponse(response="What would you like to know about KPGU? You can ask about fees, courses, or admissions! 🎓", sources=["System"], detected_language="en")
+            return ChatResponse(response="Hello! I am your KPGU Assistant. 🎓 How can I help you with fees, courses, or college services today?", sources=["System"], detected_language="en")
 
         # Cache Check
         if query in self.response_cache:
             return self.response_cache[query]
 
         if not self.is_ready:
-            return ChatResponse(response="⚙️ System is warming up university records. Please try again in 10 seconds! 🎓", sources=[], detected_language="en")
+            return ChatResponse(response="⚙️ System is warming up university records. Please wait 5 seconds! 🎓", sources=[], detected_language="en")
 
         # 1. Retrieval
         docs = []
         try:
             if self.retriever:
-                docs = self.retriever.invoke(request.query)
+                docs = self.retriever.invoke(query_raw)
             if not docs and self.fallback_chunks:
                 q_words = set(query.split())
-                matches = [(sum(1 for w in q_words if w in c.page_content.lower()), c) for c in self.fallback_chunks]
+                matches = [(sum(2 if w in c.page_content.lower() else 0 for w in q_words), c) for c in self.fallback_chunks]
                 docs = [m[1] for m in sorted([x for x in matches if x[0] > 0], key=lambda x: x[0], reverse=True)[:3]]
         except: pass
 
         if not docs:
-            return ChatResponse(response="I couldn't find specific records for that. Could you try asking in a different way? (Example: 'Fees' or 'B.Tech courses')", sources=[], detected_language="en")
+            return ChatResponse(response="I couldn't find specific information for that in the university records. Could you please specify if you're asking about B.Tech, Fees, or Admissions? 🎓", sources=[], detected_language="en")
 
         context_text = "\n\n".join([d.page_content for d in docs])
-        sources = list(set([str(d.metadata.get("source", "KPGU Portal")) for d in docs]))
+        sources = list(set([str(d.metadata.get("source", "KPGU Registry")) for d in docs]))
 
-        # 2. AI Execution (Multi-Model Speed Rotation)
-        template = "You are KPGU Assistant. Context: {context}\n\nQuestion: {question}\n\nReply clearly and concisely."
+        # 2. AI Execution
+        template = """
+        You are KPGU Assistant. Use the context to answer. 
+        Context: {context}
+        Question: {question}
+        Reply in the user's language. Be concise and accurate.
+        """
         prompt = self.ChatPromptTemplate.from_template(template)
         
         models_to_try = []
@@ -150,41 +159,47 @@ class RAGService:
         resp_text = None
         last_err = ""
         
-        # Try AI First
         for model_obj, m_name in models_to_try:
             try:
                 @retry(
                     retry=retry_if_exception_type(self.google_exceptions.ResourceExhausted) if self.google_exceptions else retry_if_exception_type(Exception),
-                    wait=wait_exponential(multiplier=1, min=0.5, max=1.2),
-                    stop=stop_after_attempt(2)
+                    wait=wait_exponential(multiplier=1, min=0.3, max=0.8),
+                    stop=stop_after_attempt(3) # Increase retries
                 )
                 async def run():
                     chain = prompt | model_obj | self.StrOutputParser()
-                    return await chain.ainvoke({"context": context_text, "question": request.query})
+                    return await chain.ainvoke({"context": context_text, "question": query_raw})
                 
                 resp_text = await run()
                 if resp_text: break
             except Exception as e:
                 last_err = str(e)
                 if "429" in last_err or "exhausted" in last_err.lower():
-                    self.model_cooldowns[m_name] = now + 90 # Longer cooldown
+                    self.model_cooldowns[m_name] = now + 45 # Moderate cooldown
                 continue
 
-        # --- FINAL ZERO-FAILURE FALLBACK: Direct Answer Extraction ---
+        # --- CONVERSATIONAL DETERMINISTIC FALLBACK (Zero-Error) ---
         if not resp_text:
-            print("CRITICAL: AI API Exhausted. Switching to Deterministic Fallback.")
-            # Build a deterministic answer from context
-            best_chunk = docs[0].page_content
-            # Simple cleaning for better presentation
-            clean_chunk = best_chunk.replace('\n', ' ').strip()
-            if len(clean_chunk) > 500: clean_chunk = clean_chunk[:497] + "..."
+            print("API LIMIT REACHED. Using Conversational Fallback.")
+            # Format the answer based on query
+            best_info = docs[0].page_content
+            # Try to find a specific mention of the key topic (like Fees or CSE)
+            keywords = ["fee", "admission", "course", "placement", "placement", "hostel"]
+            matched_info = ""
+            for d in docs:
+                if any(k in d.page_content.lower() for k in query.split()):
+                    matched_info = d.page_content
+                    break
+            if not matched_info: matched_info = best_info
             
-            resp_text = f"University Records Found:\n\n{clean_chunk}\n\n(Note: Serving from local records due to high traffic.)"
+            # Conversational formatting
+            resp_text = f"Based on university records: {matched_info[:600]}... \n\nI am currently providing information directly from our registry due to high server traffic. 🎓"
+            resp_text = re.sub(r'#+\s*', '', resp_text) # Clean up markdown headers
 
         # Lang Detect & Cache
-        lang = "gu" if any(0x0A80 <= ord(c) <= 0x0AFF for c in resp_text[:50]) else ("hi" if any(0x0900 <= ord(c) <= 0x097F for c in resp_text[:50]) else "en")
+        lang = "gu" if any(0x0A80 <= ord(c) <= 0x0AFF for c in resp_text[:100]) else ("hi" if any(0x0900 <= ord(c) <= 0x097F for c in resp_text[:100]) else "en")
         res_obj = ChatResponse(response=resp_text, sources=sources, detected_language=lang)
-        if len(self.response_cache) < 100: self.response_cache[query] = res_obj
+        if len(self.response_cache) < 150: self.response_cache[query] = res_obj
         return res_obj
 
 rag_service = RAGService()
