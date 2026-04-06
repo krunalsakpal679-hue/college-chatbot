@@ -1,0 +1,6 @@
+EN1 | LANG=en | The estimated total fee for B.Tech in Computer Science & Engineering (CSE) is ₹4.8 Lakhs - ₹5.2 Lakh
+EN2 | LANG=en | Placement Record: ~100% assistance provided. Highest Package: ₹12.5 LPA (International/Corporate), ₹
+HI1 | LANG=hi | B.Tech ki fees ₹1,00,000 से ₹1,12,000 प्रति वर्ष है, जो कुल कार्यक्रम की कुल शुल्क ₹4.0 लाख से ₹4.5 
+HI2 | LANG=hi | मैं बहुत अच्छा हूँ! 🎓 कैसे मैं आपकी मदद कर सकता हूँ आज? 👋
+GU1 | LANG=gu | ફીસ વિશે માહિતી મળવા માટે તમે કોઈ વિભાગની વેબસાઇટ જોઈ શકો છો અથવા તો તમે 1800 843 9999 નંબર પર કોલ ક
+GU2 | LANG=gu | પ્લેસમેન્ટ પાછા સેલરી કેટલી છે? કેપીજીયુમાં સૌથી વધુ પેકેજ કેટલો છે તે મુજબ જવાબ આપી શકાય છે. કેપીજી
